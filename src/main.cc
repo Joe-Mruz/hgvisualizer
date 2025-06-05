@@ -19,12 +19,14 @@
 #include "model.h"
 #include "layout.h"
 #include "ui.h"
+#include "config.h"
 
 int main() {
-    constexpr size_t NODE_COUNT = 256;
-    constexpr float SPRING_LENGTH = 5.0f;
-    constexpr int UPDATES_PER_FRAME = 10; // higher values run faster, but rendering is less granular and the layout processing may lag behind
-    constexpr int LAYOUT_ITERATIONS_PER_FRAME = 1; // higher values allow faster stable layout convergence, but is expensive and may cause stuttered rendering
+    config::Properties properties {};
+    properties.load("res/app.config");
+    config::Config config(std::move(properties));
+
+    const size_t NODE_COUNT = config.model_node_count(); // Number of nodes in the graph
 
     std::vector<model::Node> nodes;
     for (size_t i = 0; i < NODE_COUNT; ++i) {
@@ -40,27 +42,32 @@ int main() {
         int col = i % num_cols;
         vertices.emplace_back(layout::Vertex{
             nodes[i].id(), 
-            layout::Vec2(static_cast<float>(col * SPRING_LENGTH), static_cast<float>(row * SPRING_LENGTH))}); // Initial positions
+            layout::Vec2 {
+                static_cast<float>(col * config.layout_spring_length() * 2), 
+                static_cast<float>(row * config.layout_spring_length() * 2)
+            }}); // Initial positions
     }
 
     auto hgraph_layout = std::make_unique<layout::SpringElectricalEmbedding>(
         std::move(vertices),
-        100000.0f, // repulsion constant
-        0.1f, // attraction constant
-        1.0f, // timestep
-        SPRING_LENGTH, // spring length
-        0.01f,  // damping factor
-        10 // iterations for stable layout
+        config.layout_repulsion_constant(),
+        config.layout_attraction_constant(),
+        config.layout_timestep(),
+        config.layout_spring_length(),
+        config.layout_damping_factor(),         // damping factor - .01 is a good value for the O(n^2) layout, .1 is good for the Barnes-Hut layout
+        config.layout_stablization_iterations() // iterations for stable layout - 5 is a good value for the O(n^2) layout, 1 is good for the Barnes-Hut layout
     );
 
     auto hgraph_model = std::make_unique<model::Model>(
         nodes,
-        15, // edge threshold for creating new edges
-        5, // edge retainment threshold
-        0, // edge retainment decay
-        5 // edge retainment floor
+        config.model_node_max_edges(),
+        config.model_node_min_edges(),
+        config.model_node_min_edges_decay(), // reduces the node min edges after every n updates
+        config.model_node_min_edges_floor()  // decay stops when the threshold reaches this value
     );
 
+    // Select the initial positionings for the nodes and edges in the graph.
+    // Uncomment one of the following to select the initial model for the graph.
     #define HGRAPH_SIMPLE_MODEL
     //#define HGRAPH_FULLY_CONNECTED
 
@@ -96,7 +103,11 @@ int main() {
     }
     #endif
 
-    ui::run(hgraph_model, hgraph_layout, UPDATES_PER_FRAME, LAYOUT_ITERATIONS_PER_FRAME);
+    ui::run(
+        hgraph_model, 
+        hgraph_layout, 
+        config.model_updates_per_frame(), // higher values run faster, but rendering is less granular and the layout processing may lag behind
+        config.layout_iterations_per_frame()); // higher values allow faster stable layout convergence, but is expensive and may cause stuttered rendering
 
     return 0;
 }

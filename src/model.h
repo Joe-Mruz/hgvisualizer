@@ -75,21 +75,21 @@ private:
 class Model {
 public:
    Model (std::vector<Node> nodes,
-          int edge_threshold = 20,
-          int edge_retainment_threshold = 4, 
-          int edge_retainment_decay = 1000,
-          int edge_retainment_floor = 4) 
+          int node_max_edges = 20,
+          int node_min_edges = 4, 
+          int node_min_edges_decay = 1000,
+          int node_min_edges_floor = 4) 
             : nodes_(std::move(nodes)),
-              edge_threshold_(edge_threshold),
-              edge_retainment_threshold_(edge_retainment_threshold),
-              edge_retainment_decay_(edge_retainment_decay),
-              edge_retainment_floor_(edge_retainment_floor) {};
+              node_max_edges_(node_max_edges),
+              node_min_edges_(node_min_edges),
+              node_min_edges_decay_(node_min_edges_decay),
+              node_min_edges_floor_(node_min_edges_floor) {};
    
    void update ();
-   int edge_threshold() const { return edge_threshold_; }
-   int edge_retainment_threshold() const { return edge_retainment_threshold_; }
-   int edge_retainment_decay() const { return edge_retainment_decay_; }
-   int edge_retainment_floor() const { return edge_retainment_floor_; }
+   int node_max_edges() const { return node_max_edges_; }
+   int node_min_edges() const { return node_min_edges_; }
+   int node_min_edges_decay() const { return node_min_edges_decay_; }
+   int node_min_edges_floor() const { return node_min_edges_floor_; }
    size_t node_count() const { return nodes_.size(); }
    size_t edge_count() const { return edges_.size(); }
 
@@ -109,10 +109,10 @@ private:
       return false;
    }
 
-   int edge_threshold_; // Threshold for edge creation
-   int edge_retainment_threshold_; // Threshold for edge retention
-   int edge_retainment_decay_; // Decay the retainment threshold after n updates
-   int edge_retainment_floor_; // Minimum edge retainment threshold
+   int node_max_edges_; // Threshold for edge creation - maximum number of edges a node can have
+   int node_min_edges_; // Threshold for edge retention - how many edges a node must have at minimum
+   int node_min_edges_decay_; // Decay the retainment threshold after n updates
+   int node_min_edges_floor_; // Minimum edge retainment threshold - decay stops when the threshold reaches this value
    int update_count_ {0}; // Count of updates to apply decay
 };
 

@@ -2,6 +2,8 @@
 
 **HGVisualizer** is an interactive C++ simulation and visualization tool for evolving hypergraphs, inspired by the [Wolfram Physics Project](https://www.wolframphysics.org/). It features a dynamic rule-based graph model and a real-time spring-electrical embedding layout for clear and engaging visualization.
 
+[![HGVisualizer Demo](https://img.youtube.com/vi/2NnOHmyoMic/0.jpg)](https://youtu.be/2NnOHmyoMic)
+
 ---
 
 ## What Are Hypergraphs and the Wolfram Physics Project?
@@ -71,7 +73,8 @@ This approach is based on the method described in the [Wolfram Language document
 1. **Dependencies:**  
    - C++20 compiler  
    - [SDL3](https://github.com/libsdl-org/SDL)  
-   - [SDL3_ttf](https://github.com/libsdl-org/SDL_ttf)  
+   - [SDL3_ttf](https://github.com/libsdl-org/SDL_ttf)
+   - [NVIDIA CUDA Toolkit](https://developer.nvidia.com/cuda-toolkit) (for GPU-accelerated layout)  
 
 2. **Build:**  
    Use CMake:
@@ -83,8 +86,56 @@ This approach is based on the method described in the [Wolfram Language document
 3. **Run:**  
    ```
    ./build/HGVisualizerApp
-   ```
 
+---
+
+## Configuration File
+
+HGVisualizer supports a configuration file (`app.config`) that allows you to easily set simulation and layout parameters without recompiling the code. The config file should be placed in the `res` directory and uses a simple `name=value` format, with one property per line.
+
+Example: `<executable directory>/res/app.config`
+
+### Parameter Descriptions
+
+- **model.node_count**  
+  The total number of nodes in the graph.
+
+- **model.updates_per_frame**  
+  How many times the graph evolution rules are applied per frame.
+
+- **model.node_max_edges**  
+  The maximum number of edges a node can have.
+
+- **model.node_min_edges**  
+  The minimum number of edges a node should maintain.
+
+- **model.node_min_edges_decay**  
+  How often (in frames) the minimum edge count is reduced (0 means no decay).
+
+- **model.node_min_edges_floor**  
+  The lowest value the minimum edge count can decay to.
+
+- **layout.spring_length**  
+  The preferred distance between connected nodes (spring rest length).
+
+- **layout.iterations_per_frame**  
+  How many times the layout algorithm runs per frame (higher = more stable, but slower).
+
+- **layout.repulsion_constant**  
+  The strength of the repulsive force between all nodes.
+
+- **layout.attraction_constant**  
+  The strength of the attractive (spring) force along edges.
+
+- **layout.timestep**  
+  The time step for each layout iteration (affects movement speed).
+
+- **layout.damping_factor**  
+  Damping applied to node velocities to reduce oscillations.
+
+- **layout.stabilization_iterations**  
+  Number of extra layout iterations to help the graph stabilize after changes.
+   ```
 ---
 
 ## Controls
@@ -112,10 +163,15 @@ This project is licensed under the GNU General Public License v3.0.
 
 ## Work in Progress
 
-HGVisualizer is an active work in progress. Planned features include:
+HGVisualizer is an active work in progress. Recent updates include:
 
-- Support for a configuration file to easily adjust simulation and visualization parameters.
-- Additional controls to reset the graph or modify parameters during runtime.
+- **Configuration file support:** You can now easily adjust simulation and visualization parameters by editing `res/app.config` without recompiling.
+- **CUDA acceleration:** GPU-accelerated layout is now supported via the NVIDIA CUDA Toolkit for improved performance on large graphs.
+
+Planned features:
+
+- Support for user-defined/custom rules to experiment with new behaviors.
+- More interactive controls to reset the graph or modify parameters during runtime.
 - Further improvements to usability and performance.
 
 Feedback and contributions are welcome!

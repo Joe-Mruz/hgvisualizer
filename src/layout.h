@@ -119,7 +119,6 @@ public:
           iterations_(iterations) {}
 
     void do_layout(const allocator::GenerationalIndexArray<model::Edge>& edges); // Method to perform the layout algorithm
-    void do_stable_layout(const allocator::GenerationalIndexArray<model::Edge>& edges); // Method to perform a stable layout
     const std::vector<Vertex>& vertices() const { return vertices_; } // Get the list of vertices
     float repulsion_constant() const { return repulsion_constant_; } // Get the repulsion constant
     float attraction_constant() const { return attraction_constant_; } // Get the attraction constant
@@ -128,6 +127,9 @@ public:
     float damping() const { return damping_; } // Get the damping factor to reduce oscillations
     int iterations() const { return iterations_; } // Get the number of iterations for stable layout
 private:
+    void do_simple_layout(const allocator::GenerationalIndexArray<model::Edge>& edges); // Method to perform a stable layout
+    void do_bh_layout(const allocator::GenerationalIndexArray<model::Edge>& edges); // Method to perform the Barnes-Hut layout algorithm for better performance on large graphs
+    void do_cuda_layout(const allocator::GenerationalIndexArray<model::Edge>& edges); // Method to perform the CUDA layout algorithm for better performance on large graphs
     std::vector<Vertex> vertices_; // List of vertices in the graph
     float repulsion_constant_; // Constant for repulsion force between nodes
     float attraction_constant_; // Constant for attraction force between connected nodes (spring constant)

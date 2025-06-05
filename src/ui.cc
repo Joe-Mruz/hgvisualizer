@@ -191,7 +191,7 @@ void ui::run(const std::unique_ptr<model::Model>& model,
                 }
                 if (do_layout) {
                     for (int i {0}; i < layout_iterations_per_frame; ++i) {
-                        layout->do_stable_layout(model->edges_);
+                        layout->do_layout(model->edges_);
                     }
                 }
             }
@@ -239,11 +239,11 @@ void ui::run(const std::unique_ptr<model::Model>& model,
             std::format("Update (SPACE): {}", do_updates ? "ON" : "OFF"),
             std::format("Layout (TAB): {}", do_layout ? "ON" : "OFF"),
             std::format("Paused (ENTER): {}", paused ? "YES" : "NO"),
-            std::format("Zoom (MSCROLL): {:.2f}", zoom),
-            std::format("Max Edges Per Node: {}", model->edge_threshold()),
-            std::format("Edge Retainment: {}", model->edge_retainment_threshold()),
-            std::format("Retainment Decay: {}", model->edge_retainment_decay()),
-            std::format("Retainment Floor: {}", model->edge_retainment_floor()),
+            std::format("Zoom (MWHEEL): {:.2f}", zoom),
+            std::format("Max Edges Per Node: {}", model->node_max_edges()),
+            std::format("Min Edges Per Node: {}", model->node_min_edges()),
+            std::format("Decay Min Edges: {}", model->node_min_edges_decay()),
+            std::format("Decay Floor: {}", model->node_min_edges_floor()),
             std::format("Nodes: {}", model->node_count()),
             std::format("Edges: {}", model->edge_count()),
             std::format("Repulsion: {:.2f}", layout->repulsion_constant()),

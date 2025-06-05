@@ -33,7 +33,7 @@ static thread_local std::mt19937 rng{std::random_device{}()};
 bool Model::apply_rule_one(Node& node) {
     // Prevent removing too many edges that would isolate the node
     // TODO: Consider making this per node, or even per edge - what impacts would that have?
-    if (node.edges_.size() <= edge_retainment_threshold_) {
+    if (node.edges_.size() <= node_min_edges_) {
         return false; // Not enough edges to remove
     }
 
@@ -59,7 +59,7 @@ bool Model::apply_rule_one(Node& node) {
         auto other_node_id = edge->other(node.id());
         auto& other_node = nodes_[other_node_id];
 
-        if (other_node.edges_.size() > edge_retainment_threshold_) {
+        if (other_node.edges_.size() > node_min_edges_) {
             // If the other node has more than the minimum allowed edges, remove this edge
             // Note: This invalidates the iterator, so we need to break out after removing
             node.remove_edge(edge_id); 
@@ -75,7 +75,7 @@ bool Model::apply_rule_one(Node& node) {
 // Create an edge to a second tier neighbor
 // Returns true if a new edge was created, false otherwise
 bool Model::apply_rule_two(Node& node) {
-    if (node.edges_.size() < 1 || node.edges_.size() >= edge_threshold_) {
+    if (node.edges_.size() < 1 || node.edges_.size() >= node_max_edges_) {
         return false; // Not enough edges to create a new one
     }
 
@@ -132,7 +132,7 @@ bool Model::apply_rule_two(Node& node) {
                     continue;
                 }
 
-                if (nodes_[second_tier_neighbor_id].edges_.size() >= edge_threshold_) {
+                if (nodes_[second_tier_neighbor_id].edges_.size() >= node_max_edges_) {
                     continue; // The second tier neighbor already has too many edges
                 }
 
@@ -182,12 +182,12 @@ void Model::update() {
     }
 
     // Increment the update count and apply decay to the edge retainment threshold
-    if (edge_retainment_decay_ <= 0) {
+    if (node_min_edges_decay_ <= 0) {
         return; // No decay applied, exit early
     }
     update_count_++;
-    if (update_count_ % edge_retainment_decay_ == 0) {
-        edge_retainment_threshold_ = std::max(edge_retainment_floor_, edge_retainment_threshold_ - 1);
+    if (update_count_ % node_min_edges_decay_ == 0) {
+        node_min_edges_ = std::max(node_min_edges_floor_, node_min_edges_ - 1);
         update_count_ = 0;
     }
 }
