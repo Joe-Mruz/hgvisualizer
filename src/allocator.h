@@ -21,6 +21,7 @@
 
 #include <vector>
 #include <optional>
+#include <stdexcept>
 
 // This module provides a generational index array implementation.
 // It allows for efficient allocation and deallocation of indices, while maintaining the ability to track the generation of each index.
@@ -32,9 +33,11 @@ namespace allocator {
 // and the alive flag indicates whether the entry is currently valid or has been removed.
 class GenerationalIndex {
 public:
+    // Default constructor creates an invalid index
+    GenerationalIndex() : index_(0), generation_(0), alive_(false) {}
     GenerationalIndex(size_t index, size_t generation=0, bool alive=true) : index_(index), generation_(generation), alive_(alive) {}
     
-    bool        alive()         const { return alive_; }
+    bool      alive()         const { return alive_; }
     size_t    index()         const { return index_; }
     size_t    generation()    const { return generation_; }
 
@@ -57,7 +60,7 @@ public:
 private:
     size_t    index_;
     size_t    generation_;
-    bool        alive_;
+    bool      alive_;
 };
 
 // A generational entry that holds a value and its associated generational index.
@@ -110,6 +113,17 @@ public:
         return std::nullopt;
     }
 
+    // Get the value of an entry by its index
+    // Throws std::out_of_range if the index is dead or out of bounds
+    // Otherwise, returns the value of the entry
+    T& operator[] (const GenerationalIndex& index) const {
+        std::optional<T> value = get(index);
+        if (value.has_value()) {
+            return value.value();
+        }
+        throw std::out_of_range("Index is dead or out of bounds");
+    }
+
     // Remove an entry by its index
     // This marks the entry as dead and increments its generation
     // The entry can be reused later
@@ -133,32 +147,48 @@ public:
         }
     }
 
+    // Clear all entries
+    void clear() {
+        entries_.clear();
+        free_.clear();
+        size_ = 0;
+    }
+
     // Get the size of the array (number of alive entries)
     // This does not count dead entries or free indices
     size_t size() const { return size_; }
+
+    // Get the capacity of the array (total number of entries, including dead and free indices)
+    // This is the size of the entries vector, which may be larger than the number of alive entries
+    size_t capacity() const { return entries_.size(); }
 
     // Iterator for alive entries
     class Iterator {
     public:
         using iterator_category = std::forward_iterator_tag;
-        using value_type = T;
+        using value_type = GenerationalEntry<T>;
         using difference_type = std::ptrdiff_t;
-        using pointer = T*;
-        using reference = T&;
+        using pointer = GenerationalEntry<T>*;
+        using reference = GenerationalEntry<T>&;
 
         Iterator(typename std::vector<GenerationalEntry<T>>::iterator current,
                  typename std::vector<GenerationalEntry<T>>::iterator end,
-                 GenerationalIndexArray<T>* parent)
-            : current_(current), end_(end), parent_(parent) {
-            advance_to_alive();
+                 GenerationalIndexArray<T>* parent,
+                 bool alive_only = true)
+            : current_(current), end_(end), parent_(parent), alive_only_(alive_only) {
+            if (alive_only_) {
+                advance_to_alive();
+            }
         }
 
-        reference operator*() const { return current_->value(); }
-        pointer operator->() const { return &(current_->value()); }
+        reference operator*() const { return *current_; }
+        pointer operator->() const { return &(current_); }
 
         Iterator& operator++() {
             ++current_;
-            advance_to_alive();
+            if (alive_only_) {
+                advance_to_alive();
+            }
             return *this;
         }
 
@@ -168,14 +198,35 @@ public:
         bool operator!=(const Iterator& other) const {
             return !(*this == other);
         }
+        reference operator[] (size_t offset) const {
+            auto it = current_;
+            for (size_t i = 0; i < offset && it != end_; ++i) {
+                ++it;
+                if (alive_only_) {
+                    while (it != end_ && !it->index().alive()) {
+                        ++it;
+                    }
+                }
+            }
+            if (it != end_) {
+                return *it;
+            }
+            throw std::out_of_range("Iterator offset out of range");
+        }
 
         // Erase the current entry and advance to the next alive entry
         // This modifies the parent array by removing the current entry
         // It does not invalidate the iterator, but it may change the current entry
         void erase() {
             if (current_ != end_) {
-                parent_->remove(current_->index());
-                advance_to_alive();
+                if (current_->index().alive()) {
+                    parent_->remove(current_->index());
+                }
+                if (alive_only_) {
+                    advance_to_alive();
+                } else {
+                    ++current_;
+                }
             }
         }
 
@@ -188,29 +239,35 @@ public:
         typename std::vector<GenerationalEntry<T>>::iterator current_;
         typename std::vector<GenerationalEntry<T>>::iterator end_;
         GenerationalIndexArray<T>* parent_;
+        bool alive_only_; 
     };
 
     // Const iterator for alive entries
     class ConstIterator {
     public:
         using iterator_category = std::forward_iterator_tag;
-        using value_type = T;
+        using value_type = GenerationalEntry<T>;
         using difference_type = std::ptrdiff_t;
-        using pointer = const T*;
-        using reference = const T&;
+        using pointer = const GenerationalEntry<T>*;
+        using reference = const GenerationalEntry<T>&;
 
         ConstIterator(typename std::vector<GenerationalEntry<T>>::const_iterator current,
-                      typename std::vector<GenerationalEntry<T>>::const_iterator end)
-            : current_(current), end_(end) {
-            advance_to_alive();
+                      typename std::vector<GenerationalEntry<T>>::const_iterator end,
+                      bool alive_only = true)
+            : current_(current), end_(end), alive_only_(alive_only) {
+            if (alive_only_) {
+                advance_to_alive();
+            }
         }
 
-        reference operator*() const { return current_->value(); }
-        pointer operator->() const { return &(current_->value()); }
+        reference operator*() const { return *current_; }
+        pointer operator->() const { return &(*current_); }
 
         ConstIterator& operator++() {
             ++current_;
-            advance_to_alive();
+            if (alive_only_) {
+                advance_to_alive();
+            }
             return *this;
         }
 
@@ -219,6 +276,21 @@ public:
         }
         bool operator!=(const ConstIterator& other) const {
             return !(*this == other);
+        }
+        reference operator[] (size_t offset) const {
+            auto it = current_;
+            for (size_t i = 0; i < offset && it != end_; ++i) {
+                ++it;
+                if (alive_only_) {
+                    while (it != end_ && !it->index().alive()) {
+                        ++it;
+                    }
+                }
+            }
+            if (it != end_) {
+                return *it;
+            }
+            throw std::out_of_range("Iterator offset out of range");
         }
 
     private:
@@ -229,12 +301,17 @@ public:
         }
         typename std::vector<GenerationalEntry<T>>::const_iterator current_;
         typename std::vector<GenerationalEntry<T>>::const_iterator end_;
+        bool alive_only_;
     };
 
     Iterator begin() {return Iterator {entries_.begin(), entries_.end(), this};}
     Iterator end() {return Iterator {entries_.end(), entries_.end(), this};}
     ConstIterator begin() const { return ConstIterator{entries_.cbegin(), entries_.cend()}; }
     ConstIterator end() const { return ConstIterator{entries_.cend(), entries_.cend()}; }
+    Iterator begin_all() {return Iterator {entries_.begin(), entries_.end(), this, false};}
+    Iterator end_all() {return Iterator {entries_.end(), entries_.end(), this, false};}
+    ConstIterator begin_all() const { return ConstIterator{entries_.cbegin(), entries_.cend(), false}; }
+    ConstIterator end_all() const { return ConstIterator{entries_.cend(), entries_.cend(), false}; }
 
 private:
     std::vector<GenerationalEntry<T>> entries_;

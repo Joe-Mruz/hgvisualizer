@@ -64,6 +64,15 @@ __global__ void kernel_compute_forces(
     }
 
     forces[i] = force;
+
+    // Cap the maximum force to prevent exploding nodes
+    float max_force = 1000.0f; // Tune as needed
+    float force_len = force.length();
+    if (force_len > max_force) {
+        forces[i] = force.normalized() * max_force;
+    } else {
+        forces[i] = force;
+    }
 }
 }
 

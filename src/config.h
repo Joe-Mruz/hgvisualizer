@@ -22,6 +22,7 @@
 #include <string>
 #include <unordered_map>
 #include <optional>
+#include "model.h"
 
 // This module provides the capability to load configuration properties from a file.
 namespace config {
@@ -46,14 +47,8 @@ class Config {
 public:
     Config(Properties properties) : properties_(properties) {}
 
-    size_t  model_node_count()               const {return properties_.get_size_t("model.node_count").value_or(256);}
     int     model_updates_per_frame()        const {return properties_.get_int("model.updates_per_frame").value_or(10);}
-    size_t  model_node_max_edges()           const {return properties_.get_size_t("model.node_max_edges").value_or(10);}
-    size_t  model_node_min_edges()           const {return properties_.get_size_t("model.node_min_edges").value_or(5);}
-    size_t  model_node_min_edges_decay()     const {return properties_.get_size_t("model.node_min_edges_decay").value_or(0);}
-    size_t  model_node_min_edges_floor()     const {return properties_.get_size_t("model.node_min_edges_floor").value_or(5);}
     float   layout_spring_length()           const {return properties_.get_float("layout.spring_length").value_or(5.0f);}
-    int     layout_iterations_per_frame()    const {return properties_.get_int("layout.iterations_per_frame").value_or(1);}
     float   layout_repulsion_constant()      const {return properties_.get_float("layout.repulsion_constant").value_or(10000.0f);}
     float   layout_attraction_constant()     const {return properties_.get_float("layout.attraction_constant").value_or(0.5f);}
     float   layout_timestep()                const {return properties_.get_float("layout.timestep").value_or(1.0f);}
@@ -61,6 +56,17 @@ public:
     int     layout_stablization_iterations() const {return properties_.get_int("layout.stabilization_iterations").value_or(5);}
 private:
     const Properties properties_;
+};
+
+// The Rules class is responsible for loading and storing the rules used in the model.
+// It provides a method to load rules from a file and a method to retrieve the loaded rules.
+class Rules {
+public:
+    void load(const std::string& filename);
+    std::vector<model::Rule> rules() const { return rules_; }
+private:
+    std::vector<model::Rule> rules_;
+
 };
 
 }

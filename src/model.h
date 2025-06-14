@@ -19,9 +19,9 @@
 #ifndef MODEL_H
 #define MODEL_H
 
-#include <cstdint>
 #include <vector>
 #include <algorithm>
+#include <array>
 #include "allocator.h"
 
 // This module defines the model for a graph structure, including nodes and edges.
@@ -30,27 +30,9 @@
 namespace model {
 
 using NodeId = size_t;
-using EdgeId = allocator::GenerationalIndex;
-
-// The Node class represents a node (vertex) in the graph.
-class Node {
-public:
-   Node (NodeId id, allocator::GenerationalIndexArray<EdgeId> edges = {}) : id_(id), edges_(std::move(edges)){}
-   
-   NodeId id() const { return id_; }
-   bool remove_edge(EdgeId edge_id) {
-      auto it = std::find(edges_.begin(), edges_.end(), edge_id);
-      if (it != edges_.end()) {
-         it.erase();
-         return true;
-      }
-      return false;
-   }
-
-   allocator::GenerationalIndexArray<EdgeId> edges_;
-private:
-   NodeId id_;
-};
+using NodeIndex = allocator::GenerationalIndex;
+using EdgeIndex = allocator::GenerationalIndex;
+using ModelTime = size_t;
 
 class Edge {
 public:
@@ -71,49 +53,171 @@ private:
    NodeId to_;
 };
 
-// The Model class represents the entire graph structure, containing nodes and edges.
+class Node {
+public:
+   Node() = default;
+   Node(NodeId id, NodeId parent_id = 0, ModelTime creation_time = 0) : id_(id), parent_id_(parent_id), creation_time_(creation_time) {}
+
+   NodeId id() const { return id_; }
+   ModelTime creation_time() const { return creation_time_; }
+   NodeId parent_id() const { return parent_id_; }
+
+private:
+   NodeId id_;
+   NodeId parent_id_ = 0; // Node ID that this node was created from, if any
+   ModelTime creation_time_ = 0; // Time when this node was created
+};
+
+enum class FilterType {
+   Edge,
+};
+
+enum class FilterCompareType {
+   Equal,
+   NotEqual,
+   LessThan,
+   GreaterThan,
+   LessThanOrEqual,
+   GreaterThanOrEqual,
+};
+
+enum class OperationType {
+   Expand,
+   Merge,
+   Split,
+   Integrate,
+   Decay,
+   ExpandAll,
+};
+
+using NodeArray = allocator::GenerationalIndexArray<Node>;
+using EdgeArray = allocator::GenerationalIndexArray<Edge>;
+
+// Represents an operation to be performed on a node
+// based on the result of a rule.
+class Operation {
+public:
+   Operation(OperationType op, size_t value=0) : op_(op), value_(value) {}
+
+   OperationType op() const { return op_; }
+   size_t value() const { return value_; }
+
+private:
+   OperationType op_;
+   size_t value_;
+};
+
+// Represents a filter to be applied to a node
+// to determine if a rule should be applied.
+class Filter {
+public:
+   Filter(FilterType filter, FilterCompareType compare, size_t value) : filter_(filter), compare_(compare), value_(value) {}
+
+   FilterType filter() const { return filter_; }
+   FilterCompareType compare() const { return compare_; }
+   size_t value() const { return value_; }
+
+private:
+   FilterType filter_;
+   FilterCompareType compare_;
+   size_t value_;
+};
+
+// Represents the result of a rule match.
+// This includes whether the match was successful
+// and any edges that were matched.
+constexpr size_t MAX_MATCHED_EDGES = 100;
+class MatchResult {
+public:
+   MatchResult() = default;
+   void fail() { success_ = false; }
+   void success() { success_ = true; }
+   bool is_success() const { return success_; }
+   const std::array<EdgeIndex, MAX_MATCHED_EDGES>& edge_indexes() const { return edge_indexes_; }
+   size_t edge_count() const { return edge_count_; }
+
+   void add_edge_index(EdgeIndex edge_index) {
+      if (edge_count_ < MAX_MATCHED_EDGES) {
+         edge_indexes_[edge_count_++] = edge_index;
+      }
+   }
+private:
+   bool success_ = false;
+   std::array<EdgeIndex, MAX_MATCHED_EDGES> edge_indexes_;
+   size_t edge_count_ = 0;
+};
+
+// Represents a rule that can be applied to a node.
+// A rule consists of a filter and an operation.
+// The filter is used to determine if the rule should be applied,
+// and the operation is the action to be performed if the rule matches.
+class Rule {
+public:
+   Rule(Filter lhs, Operation rhs) : lhs_(lhs), rhs_(rhs) {}
+
+   Filter lhs() const { return lhs_; }
+   Operation rhs() const { return rhs_; }
+   MatchResult matches(const NodeId node_id, const NodeArray& nodes, const EdgeArray& edges) const;
+
+private:
+   Filter lhs_;
+   Operation rhs_;
+};
+
+// Represents the model of a graph structure.
+// This includes nodes, edges, and rules for modifying the graph.
 class Model {
 public:
-   Model (std::vector<Node> nodes,
-          int node_max_edges = 20,
-          int node_min_edges = 4, 
-          int node_min_edges_decay = 1000,
-          int node_min_edges_floor = 4) 
-            : nodes_(std::move(nodes)),
-              node_max_edges_(node_max_edges),
-              node_min_edges_(node_min_edges),
-              node_min_edges_decay_(node_min_edges_decay),
-              node_min_edges_floor_(node_min_edges_floor) {};
-   
-   void update ();
-   int node_max_edges() const { return node_max_edges_; }
-   int node_min_edges() const { return node_min_edges_; }
-   int node_min_edges_decay() const { return node_min_edges_decay_; }
-   int node_min_edges_floor() const { return node_min_edges_floor_; }
+   Model(std::vector<Rule> rules, EdgeArray edges, NodeArray nodes)
+      : rules_(std::move(rules)), edges_(std::move(edges)), nodes_(std::move(nodes)) {
+         add_node(0); // Start with a single node
+   }
+
+   const std::vector<Rule>& rules() const { return rules_; }
+   const EdgeArray& edges() const { return edges_; }
+   const NodeArray& nodes() const { return nodes_; }
    size_t node_count() const { return nodes_.size(); }
    size_t edge_count() const { return edges_.size(); }
+   ModelTime time() const { return time_; }
+   bool terminal_state() const { return terminal_state_; }
+   float rule_miss_percentage() const { return rule_miss_percentage_; }
 
-   std::vector<Node> nodes_;
-   allocator::GenerationalIndexArray<Edge> edges_;
-private:
-   bool apply_rule_one(Node& node);
-   bool apply_rule_two(Node& node);
-
-   bool nodes_connected(NodeId node_id1, NodeId node_id2) const {
-      for (const auto& edge_id : nodes_[node_id1].edges_) {
-         auto edge = edges_.get(edge_id);
-         if (edge && edge->connects(node_id2)) {
+   bool contains_edge(Edge edge) const {
+      for (const auto& entry : edges_) {
+         if (entry.value() == edge) {
             return true;
          }
       }
       return false;
    }
 
-   int node_max_edges_; // Threshold for edge creation - maximum number of edges a node can have
-   int node_min_edges_; // Threshold for edge retention - how many edges a node must have at minimum
-   int node_min_edges_decay_; // Decay the retainment threshold after n updates
-   int node_min_edges_floor_; // Minimum edge retainment threshold - decay stops when the threshold reaches this value
-   int update_count_ {0}; // Count of updates to apply decay
+   void update();
+   void reset();
+private:
+   Node add_node(NodeId parent_id) {
+      // We want to ensure the node ID is equivalent to its index in the array. 
+      // This allows for certain optimizations with edge lookups.
+      auto idx = nodes_.add(Node{});
+      auto node = Node{idx.index(), parent_id, time_};
+      nodes_.set(idx, node);
+      return node;
+   }
+
+   bool apply_rule(Rule rule, NodeId this_node_id);
+   bool apply_rule_expand(Rule rule, NodeId this_node_id, MatchResult match_result);
+   bool apply_rule_collapse(Rule rule, NodeId this_node_id, MatchResult match_result, bool retain_original_edges = false);
+   bool apply_rule_integrate(Rule rule, NodeId this_node_id, MatchResult match_result);
+   bool apply_rule_decay(Rule rule, NodeId this_node_id, MatchResult match_result);
+   bool apply_rule_expand_all(Rule rule, NodeId this_node_id, MatchResult match_result);
+   bool apply_rule_merge(Rule rule, NodeId this_node_id, MatchResult match_result);
+   bool apply_rule_split(Rule rule, NodeId this_node_id, MatchResult match_result);
+
+   std::vector<Rule> rules_;
+   EdgeArray edges_;
+   NodeArray nodes_;
+   ModelTime time_ = 1; // Start at time 1 so the initial node has a creation time of 1
+   bool terminal_state_ = false; // True if no rules can be applied
+   float rule_miss_percentage_ = 0.0f; // Percentage of nodes that did not have any rules applied
 };
 
 }

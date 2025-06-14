@@ -21,7 +21,6 @@
 
 #include <vector>
 #include <cmath>
-#include "allocator.h"
 #include "model.h"
 
 // This module provides a graph layout algorithm using a spring-electrical embedding method.
@@ -90,20 +89,34 @@ private:
 
 class Vertex {
 public:
-    Vertex(model::NodeId id, Vec2 position, Vec2 velocity = {0.f, 0.f}) : id_(id), position_(position), velocity_(velocity) {}
-    
+    Vertex() = default;
+    Vertex(
+        model::NodeId id, 
+        Vec2 position, 
+        Vec2 velocity = {0.f, 0.f}, 
+        model::ModelTime created_time = 0, 
+        bool alive = false) 
+        : id_(id), 
+          position_(position), 
+          velocity_(velocity), 
+          created_time_(created_time), 
+          alive_(alive) {}
+
     model::NodeId id() const { return id_; }
     
     Vec2 position_;
     Vec2 velocity_;
-private:
+    bool alive_; // Indicates if the vertex is still part of the graph
+    model::ModelTime created_time_;
     model::NodeId id_;
 };
+
+using VertexArray = std::vector<Vertex>;
 
 class SpringElectricalEmbedding {
 public:
     SpringElectricalEmbedding(
-            const std::vector<Vertex>& vertices, 
+            const VertexArray& vertices, 
             float repulsion_constant = 1.0f, 
             float attraction_constant = 0.1f, 
             float timestep = 1.0f, 
@@ -118,8 +131,11 @@ public:
           damping_(damping), 
           iterations_(iterations) {}
 
-    void do_layout(const allocator::GenerationalIndexArray<model::Edge>& edges); // Method to perform the layout algorithm
-    const std::vector<Vertex>& vertices() const { return vertices_; } // Get the list of vertices
+    void update(const model::Model& model); // Method to update the layout based on the current model state
+    void reset(); // Method to reset the layout to its initial state
+    void do_layout(const model::Model& model); // Method to perform the layout algorithm
+    
+    const VertexArray& vertices() const { return vertices_; } // Get the list of vertices
     float repulsion_constant() const { return repulsion_constant_; } // Get the repulsion constant
     float attraction_constant() const { return attraction_constant_; } // Get the attraction constant
     float timestep() const { return timestep_; } // Get the time step for the simulation
@@ -127,16 +143,17 @@ public:
     float damping() const { return damping_; } // Get the damping factor to reduce oscillations
     int iterations() const { return iterations_; } // Get the number of iterations for stable layout
 private:
-    void do_simple_layout(const allocator::GenerationalIndexArray<model::Edge>& edges); // Method to perform a stable layout
-    void do_bh_layout(const allocator::GenerationalIndexArray<model::Edge>& edges); // Method to perform the Barnes-Hut layout algorithm for better performance on large graphs
-    void do_cuda_layout(const allocator::GenerationalIndexArray<model::Edge>& edges); // Method to perform the CUDA layout algorithm for better performance on large graphs
-    std::vector<Vertex> vertices_; // List of vertices in the graph
+    void do_simple_layout(const model::EdgeArray& edges); // Method to perform a simple O(n^2) layout algorithm
+    void do_bh_layout(const model::EdgeArray& edges); // Method to perform the Barnes-Hut layout algorithm for better performance on large graphs
+    void do_cuda_layout(const model::EdgeArray& edges); // Method to perform the CUDA layout algorithm for better performance on large graphs
+    VertexArray vertices_; // List of vertices in the graph
     float repulsion_constant_; // Constant for repulsion force between nodes
     float attraction_constant_; // Constant for attraction force between connected nodes (spring constant)
     float timestep_; // Time step for the simulation
     float spring_length_; // Desired length of the springs (edges) between connected nodes
     float damping_; // Damping factor to reduce oscillations
     int iterations_; // Number of iterations for stable layout
+    model::ModelTime time_last_updated_ = 0; // Time when the layout was last updated
 };
 
 }

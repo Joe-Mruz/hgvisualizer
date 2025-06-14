@@ -21,32 +21,89 @@
 #include "allocator.h"
 #include "layout_cuda.h"
 #include <iostream>
+#include <random>
 
 // Select the layout algorithm to use - uncomment one of the following lines
 #define LAYOUT_CUDA
 //#define LAYOUT_BH
 //#define LAYOUT_SIMPLE
 
+namespace layout {
+
+static thread_local std::mt19937 rng{std::random_device{}()};
+
+// Update the layout based on the current state of the model.
+// This method adds new nodes to the layout and removes dead nodes.
+// This should be called before do_layout() to ensure the layout is up to date
+// and whenever the model is updated.
+void SpringElectricalEmbedding::update(const model::Model& model) {
+    // Find any new nodes and add vertices for them.
+    // Find any dead nodes and remove their vertices.
+    auto& nodes = model.nodes();
+
+    if (nodes.capacity() > vertices_.size()) {
+        // Resize the vertices_ vector to accommodate new nodes
+        vertices_.resize(nodes.capacity());
+    }
+
+    size_t index = 0;
+    for (auto it = nodes.begin_all(); it != nodes.end_all(); ++it) {
+        const auto& node = *it;
+
+        vertices_[index].alive_ = node.index().alive();
+
+        if (node.index().alive() && node.value().creation_time() > time_last_updated_) {
+            // New node found, add it to the layout
+            // Determine the initial location based on the node's parent ID.
+            if (model.node_count() == 1) {
+                // This is the root node, place it at the center of the layout
+                vertices_[index] = Vertex{node.value().id(), Vec2{0.f, 0.f}, Vec2{0.f, 0.f}, model.time(), true};
+            } else {
+                // Place child nodes around their parent node
+                Vec2 parent_position = vertices_[node.value().parent_id()].position_;
+                // Generate a random angle and distance
+                std::uniform_real_distribution<float> angle_dist(0.0f, 2.0f * 3.14159265f);
+                std::uniform_real_distribution<float> radius_dist(5.0f, 20.0f);
+                float angle = angle_dist(rng);
+                float radius = radius_dist(rng);
+                Vec2 offset{radius * std::cos(angle), radius * std::sin(angle)};
+                vertices_[index] = Vertex{node.value().id(), parent_position + offset, Vec2{0.f, 0.f}, model.time(), true};
+            }
+        }
+        index++;
+    }
+
+    time_last_updated_ = model.time();
+}
+
+// Reset the layout to its initial state.
+// This method clears all vertices and resets the last updated time.
+void SpringElectricalEmbedding::reset() {
+    vertices_.clear();
+    time_last_updated_ = 0;
+}
+
 // Perform a stable layout by running the layout algorithm multiple times
 // to allow the system to converge to a stable state.
 // This method resets the velocities of the vertices to avoid building up oscillations.
-void layout::SpringElectricalEmbedding::do_layout(const allocator::GenerationalIndexArray<model::Edge>& edges) {
+void SpringElectricalEmbedding::do_layout(const model::Model& model) {
     for (size_t i = 0; i < iterations_; ++i) {
 #if defined(LAYOUT_CUDA)
-        do_cuda_layout(edges);
+        do_cuda_layout(model.edges());
 #elif defined(LAYOUT_BH)
-        do_bh_layout(edges);
+        do_bh_layout(model.edges());
 #elif defined(LAYOUT_SIMPLE)
-        do_simple_layout(edges);
+        do_simple_layout(model.edges());
 #else
         std::cerr << "No layout algorithm defined. Please define one of LAYOUT_CUDA, LAYOUT_BH, or LAYOUT_SIMPLE." << std::endl;
         return;
 #endif
     }
 
-    // Reset to avoid building up oscillations
+    // Reduce velocity to avoid building up oscillations
+    // and help converge to a stable layout.
     for (auto& vertex : vertices_) {
-        vertex.velocity_ = {0.f, 0.f};
+        vertex.velocity_ /= 2.f;
     }
 }
 
@@ -54,7 +111,7 @@ void layout::SpringElectricalEmbedding::do_layout(const allocator::GenerationalI
 // to adjust the positions of vertices based on repulsion and attraction forces.
 // This is the naive O(n^2) implementation of the layout algorithm.
 // Precondition: The NodeIds of the edges must match the IDs of the vertices.
-void layout::SpringElectricalEmbedding::do_simple_layout(const allocator::GenerationalIndexArray<model::Edge>& edges) {
+void SpringElectricalEmbedding::do_simple_layout(const model::EdgeArray& edges) {
     for (auto& v : vertices_) {
         Vec2 force{0, 0};
         
@@ -68,8 +125,8 @@ void layout::SpringElectricalEmbedding::do_simple_layout(const allocator::Genera
         
         // Attraction (springs)
         for (const auto& edge : edges) {
-            if (edge.from() == v.id() || edge.to() == v.id()) {
-                Vertex& other = (edge.from() == v.id()) ? vertices_[edge.to()] : vertices_[edge.from()];
+            if (edge.value().from() == v.id() || edge.value().to() == v.id()) {
+                const Vertex& other = (edge.value().from() == v.id()) ? vertices_[edge.value().to()] : vertices_[edge.value().from()];
                 Vec2 delta = other.position_ - v.position_;
                 float dist = delta.length();
                 force += delta.normalized() * (dist - spring_length_) * attraction_constant_;
@@ -172,7 +229,7 @@ struct Quad {
 // Implement the Barnes-Hut layout algorithm for the spring-electrical embedding.
 // This method uses a quadtree to efficiently compute repulsion forces between vertices.
 // Precondition: The NodeIds of the edges must match the IDs of the vertices.
-void layout::SpringElectricalEmbedding::do_bh_layout(const allocator::GenerationalIndexArray<model::Edge>& edges) {
+void SpringElectricalEmbedding::do_bh_layout(const model::EdgeArray& edges) {
     // 1. Build quadtree
     float minX = vertices_[0].position_.x(), maxX = minX;
     float minY = vertices_[0].position_.y(), maxY = minY;
@@ -196,8 +253,8 @@ void layout::SpringElectricalEmbedding::do_bh_layout(const allocator::Generation
 
         // Attraction (springs)
         for (const auto& edge : edges) {
-            if (edge.from() == v.id() || edge.to() == v.id()) {
-                Vertex& other = (edge.from() == v.id()) ? vertices_[edge.to()] : vertices_[edge.from()];
+            if (edge.value().from() == v.id() || edge.value().to() == v.id()) {
+                const Vertex& other = (edge.value().from() == v.id()) ? vertices_[edge.value().to()] : vertices_[edge.value().from()];
                 Vec2 delta = other.position_ - v.position_;
                 float dist = std::max(delta.length(), 1.0f); // Clamp to minimum distance
                 force += delta.normalized() * (dist - spring_length_) * attraction_constant_;
@@ -212,32 +269,34 @@ void layout::SpringElectricalEmbedding::do_bh_layout(const allocator::Generation
 // Perform the layout using CUDA for better performance on large graphs.
 // It uses a custom CUDA kernel to compute forces based on the positions of vertices and edges.
 // Precondition: The NodeIds of the edges must match the IDs of the vertices.
-void layout::SpringElectricalEmbedding::do_cuda_layout(const allocator::GenerationalIndexArray<model::Edge>& edges) {
+void SpringElectricalEmbedding::do_cuda_layout(const model::EdgeArray& edges) {
     using namespace layout_cuda;
 
+    // IMPORTANT: This only works if we never remove a vertex. If we do then, index->node_id might not exist.
+    // This is because the CUDA kernel expects the vertex indices to match the order in the vertices_ vector.
     int n = static_cast<int>(vertices_.size());
     int e = static_cast<int>(edges.size());
 
-    // Prepare positions array
+    // Prepare positions array for all vertices
     std::vector<CudaVec2> h_positions(n);
     for (int i = 0; i < n; ++i) {
         h_positions[i].x = vertices_[i].position_.x();
         h_positions[i].y = vertices_[i].position_.y();
     }
 
-    // Prepare edges array
+    // Prepare edges array (all edges, since springs may connect to any vertex)
     std::vector<CudaEdge> h_edges(e);
     int edge_idx = 0;
     for (const auto& edge : edges) {
-        h_edges[edge_idx].from = edge.from();
-        h_edges[edge_idx].to = edge.to();
+        h_edges[edge_idx].from = edge.value().from();
+        h_edges[edge_idx].to = edge.value().to();
         ++edge_idx;
     }
 
-    // Output forces array
+    // Output forces array for all vertices
     std::vector<CudaVec2> h_forces(n);
 
-    // Call CUDA wrapper to compute forces
+    // Call CUDA wrapper to compute forces for all vertices
     layout_cuda::compute_forces(
         h_positions.data(),
         h_forces.data(),
@@ -249,10 +308,20 @@ void layout::SpringElectricalEmbedding::do_cuda_layout(const allocator::Generati
         attraction_constant_
     );
 
-    // Update vertex velocities and positions
+    // Clamp maximum velocity to avoid instability and "jittering" of nodes when
+    // a node has a large number of edges.
+    // This value may need to be tuned based on the graph size and layout parameters
+    constexpr float MAX_VELOCITY = 10.f;
+
+    // Update vertex velocities and positions for all vertices
     for (int i = 0; i < n; ++i) {
         Vec2 force{h_forces[i].x, h_forces[i].y};
         vertices_[i].velocity_ += (force * timestep_) * damping_;
+        if (vertices_[i].velocity_.length() > MAX_VELOCITY) {
+            vertices_[i].velocity_ = vertices_[i].velocity_.normalized() * MAX_VELOCITY;
+        }
         vertices_[i].position_ += vertices_[i].velocity_ * timestep_;
     }
+}
+
 }

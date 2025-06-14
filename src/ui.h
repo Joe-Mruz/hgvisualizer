@@ -29,8 +29,7 @@ namespace ui {
 
 void run(const std::unique_ptr<model::Model>& model, 
          const std::unique_ptr<layout::SpringElectricalEmbedding>& layout, 
-         const int updates_per_frame = 1,
-         const int layout_iterations_per_frame = 1);
+         const int updates_per_frame = 1);
 }
 
 #endif
