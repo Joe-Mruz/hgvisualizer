@@ -120,13 +120,13 @@ edges>=4 -> integrate(2)
 ## Example `app.config`
 
 ```
-layout_repulsion_constant=1.0
-layout_attraction_constant=0.1
-layout_timestep=1.0
-layout_spring_length=10.0
-layout_damping_factor=0.95
-layout_stablization_iterations=100
-model_updates_per_frame=1
+layout.repulsion_constant=1.0
+layout.attraction_constant=0.1
+layout.timestep=1.0
+layout.spring_length=10.0
+layout.damping_factor=0.95
+layout.stablization_iterations=100
+model.updates_per_frame=1
 ```
 ---
 
